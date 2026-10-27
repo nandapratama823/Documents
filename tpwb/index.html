@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peta 307 CCTV Trans Jawa - Dataset Koordinat</title>
+    <meta name="description" content="Peta 307 titik CCTV Tol Trans Jawa berdasarkan metadata BPJT dan estimasi koordinat geospasial OpenStreetMap.">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css?v=36.0">
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- ==========================================================================
+             MAIN HEADER & NAVIGATION
+             ========================================================================== -->
+        <header class="main-header">
+            <!-- Brand Section -->
+            <div class="brand-section">
+                <div class="brand-logo-badge">
+                    <i class="fa-solid fa-road-circle-check"></i>
+                </div>
+                <div class="brand-titles">
+                    <div class="brand-tagline">
+                        <i class="fa-solid fa-database"></i> Dataset BPJT & Referensi OpenStreetMap
+                    </div>
+                    <div class="brand-title">
+                        Peta CCTV <span>Trans Jawa</span>
+                        <div class="live-indicator-pill">
+                            <span class="live-dot"></span> 307 TITIK
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Central Navigation Tabs (PRD Phases 1-4) -->
+            <nav class="header-nav">
+                <button class="nav-tab-btn active" data-tab="map-view" id="navTabMap">
+                    <i class="fa-solid fa-map-location-dot"></i> Peta Pantauan
+                    <span class="badge-pill" id="totalCctvBadge">0</span>
+                </button>
+                <button class="nav-tab-btn" data-tab="analytics-view" id="navTabAnalytics">
+                    <i class="fa-solid fa-chart-pie"></i> Statistik & Grafik
+                </button>
+                <button class="nav-tab-btn" data-tab="table-view" id="navTabTable">
+                    <i class="fa-solid fa-table-list"></i> Daftar Data CCTV
+                </button>
+                <button class="nav-tab-btn admin-only" data-tab="admin-view" id="navTabAdmin" style="display: none;">
+                    <i class="fa-solid fa-shield-halved"></i> Kelola CCTV
+                </button>
+            </nav>
+
+            <!-- Header Right Tools -->
+            <div class="header-actions">
+                <!-- Clock -->
+                <div class="clock-display">
+                    <div class="clock-time" id="clockTime">--:--:-- WIB</div>
+                    <div class="clock-date" id="clockDate">-- --- ----</div>
+                </div>
+
+                <!-- Admin Auth State -->
+                <div class="admin-header-box">
+                    <!-- Guest: Login Button -->
+                    <div id="adminLoginGuestBox">
+                        <button class="btn-admin-login" onclick="openModal('loginModal')">
+                            <i class="fa-solid fa-lock"></i> Masuk Admin
+                        </button>
+                    </div>
+
+                    <!-- Logged In: Profile Pill -->
+                    <div id="adminLoggedInBox" style="display: none;">
+                        <div class="admin-profile-pill" onclick="switchTab('admin-view')">
+                            <div class="admin-avatar">AD</div>
+                            <div class="admin-label">
+                                <span class="admin-name">Admin Transjawa</span>
+                                <span class="admin-role">Super Admin</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ==========================================================================
+             MAIN VIEWPORT
+             ========================================================================== -->
+        <main class="main-viewport">
+
+            <!-- ======================================================================
+                 VIEW 1: PETA SEBARAN & DETAIL CCTV (FASE 1)
+                 ====================================================================== -->
+            <section class="tab-view active" id="map-view">
+                <div class="map-view-container">
+
+                    <!-- Left Sidebar (FASE 2: Filter & Search) -->
+                    <aside class="map-sidebar" id="mapSidebar">
+                        <!-- Sidebar Header -->
+                        <div class="sidebar-header">
+                            <div class="sidebar-header-top">
+                                <div class="sidebar-title">
+                                    <span class="sidebar-title-icon"><i class="fa-solid fa-sliders"></i></span>
+                                    <span class="sidebar-title-copy">
+                                        <span class="sidebar-kicker">Pusat Kendali Data</span>
+                                        <span>Filter & Pencarian</span>
+                                    </span>
+                                </div>
+                                <button class="btn-sidebar-toggle" id="btnToggleSidebar" title="Tutup panel dan perluas peta" aria-label="Tutup panel dan perluas peta" aria-expanded="true">
+                                    <i class="fa-solid fa-chevron-left"></i>
+                                </button>
+                            </div>
+
+                            <!-- Search Input -->
+                            <div class="search-wrapper">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                <input type="text" 
+                                       id="searchInput" 
+                                       class="search-input" 
+                                       placeholder="Cari titik CCTV, KM, atau ruas..."
+                                       autocomplete="off">
+                                <button class="search-clear-btn" id="searchClearBtn" title="Hapus Pencarian">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <!-- Filter Controls -->
+                            <div class="filter-section">
+                                <!-- Ruas Tol Select -->
+                                <select class="select-control" id="filterRuasSelect">
+                                    <!-- Populated dynamically -->
+                                </select>
+
+                                <!-- Status Filter Pills -->
+                                <div class="filter-pills-row">
+                                    <button class="filter-pill active" data-filter-type="status" data-filter-val="all">Semua</button>
+                                    <button class="filter-pill" data-filter-type="status" data-filter-val="online"><span class="filter-status-dot online"></span>Akurasi Tinggi</button>
+                                    <button class="filter-pill" data-filter-type="status" data-filter-val="gangguan"><span class="filter-status-dot gangguan"></span>Akurasi Sedang</button>
+                                    <button class="filter-pill" data-filter-type="status" data-filter-val="offline"><span class="filter-status-dot offline"></span>Perlu Verifikasi</button>
+                                </div>
+
+                                <div class="dataset-source-note">
+                                    <i class="fa-solid fa-circle-info"></i>
+                                    Koordinat bersifat estimasi geospasial, bukan koordinat resmi hasil survei BPJT.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filter Summary Bar -->
+                        <div class="filter-summary-bar">
+                            <span class="result-count-badge" id="filterResultCount">0 Kamera Ditemukan</span>
+                            <button class="btn-reset-filters" onclick="resetAllFilters()">Reset Filter</button>
+                        </div>
+
+                        <!-- Sidebar Quick Stats Ribbon (Docked inside sidebar, not floating on map) -->
+                        <div class="sidebar-stats-grid">
+                            <div class="sidebar-stat-item">
+                                <span class="sidebar-stat-val" id="ribbonTotal">0</span>
+                                <span class="sidebar-stat-lbl"><i class="fa-solid fa-video"></i> Total CCTV</span>
+                            </div>
+                            <div class="sidebar-stat-item online">
+                                <span class="sidebar-stat-val" id="ribbonOnline">0</span>
+                                <span class="sidebar-stat-lbl"><i class="fa-solid fa-circle-check"></i> Akurasi Tinggi</span>
+                            </div>
+                            <div class="sidebar-stat-item info">
+                                <span class="sidebar-stat-val" id="ribbonRuas">0</span>
+                                <span class="sidebar-stat-lbl"><i class="fa-solid fa-road"></i> Ruas Dataset</span>
+                            </div>
+                        </div>
+
+                        <!-- CCTV Cards Scrollable List -->
+                        <div class="sidebar-cctv-list" id="sidebarCctvList">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </aside>
+
+                    <!-- Open Sidebar Floating Button (when collapsed) -->
+                    <button class="btn-open-sidebar-float" id="btnOpenSidebarFloat">
+                        <i class="fa-solid fa-list-ul"></i> Daftar Kamera & Filter
+                    </button>
+
+                    <!-- Center Map Canvas Area -->
+                    <div class="map-canvas-container">
+                        <div id="map"></div>
+
+                        <div class="map-context-card" aria-label="Ringkasan peta CCTV Trans Jawa">
+                            <div class="map-context-topline">
+                                <span class="map-context-status"><span></span> Dataset aktif</span>
+                                <span class="map-context-code">GIS / TJ-307</span>
+                            </div>
+                            <div class="map-context-title">Jaringan CCTV Trans Jawa</div>
+                            <div class="map-context-meta">
+                                <span><i class="fa-solid fa-video"></i> 307 titik</span>
+                                <span><i class="fa-solid fa-road"></i> 17 ruas</span>
+                                <span><i class="fa-solid fa-location-crosshairs"></i> Geospasial</span>
+                            </div>
+                        </div>
+
+                        <!-- Floating Map Controls Bar -->
+                        <div class="map-floating-controls">
+                            <!-- Zoom & Bounds -->
+                            <div class="floating-btn-group">
+                                <button class="map-control-btn" onclick="AppState.map.zoomIn()" data-tooltip="Perbesar Peta">
+                                    <i class="fa-solid fa-plus"></i>
+                                </button>
+                                <button class="map-control-btn" onclick="AppState.map.zoomOut()" data-tooltip="Perkecil Peta">
+                                    <i class="fa-solid fa-minus"></i>
+                                </button>
+                                <button class="map-control-btn" onclick="resetTransJawaView()" data-tooltip="Pusatkan Seluruh Pulau Jawa">
+                                    <i class="fa-solid fa-maximize"></i>
+                                </button>
+                                <button class="map-control-btn" id="btnMapGps" data-tooltip="Lokasi Saya (GPS)">
+                                    <i class="fa-solid fa-location-crosshairs"></i>
+                                </button>
+                            </div>
+
+                            <!-- Basemap Switcher (Real-Time Maps & Layers) -->
+                            <div class="floating-btn-group">
+                                <button class="map-control-btn active" data-basemap="google_road" onclick="switchBasemap('google_road')" data-tooltip="Peta Google Maps Jalan">
+                                    <i class="fa-solid fa-map"></i>
+                                </button>
+                                <button class="map-control-btn" data-basemap="google_hybrid" onclick="switchBasemap('google_hybrid')" data-tooltip="Peta Satelit & Jalan (Hybrid)">
+                                    <i class="fa-solid fa-earth-asia"></i>
+                                </button>
+                                <button class="map-control-btn" data-basemap="osm" onclick="switchBasemap('osm')" data-tooltip="OpenStreetMap Pulau Jawa">
+                                    <i class="fa-solid fa-road"></i>
+                                </button>
+                                <button class="map-control-btn" data-basemap="satellite" onclick="switchBasemap('satellite')" data-tooltip="Citra Satelit ESRI HD">
+                                    <i class="fa-solid fa-satellite"></i>
+                                </button>
+                                <button class="map-control-btn" data-basemap="dark" onclick="switchBasemap('dark')" data-tooltip="Peta Mode Malam">
+                                    <i class="fa-solid fa-moon"></i>
+                                </button>
+                            </div>
+
+                            <!-- Fullscreen Mode -->
+                            <div class="floating-btn-group">
+                                <button class="map-control-btn" id="btnMapFullscreen" data-tooltip="Layar Penuh">
+                                    <i class="fa-solid fa-expand"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Map Legend Overlay -->
+                        <div class="map-floating-legend">
+                            <div class="legend-title">
+                                <span>Akurasi Lokasi CCTV</span>
+                                <i class="fa-solid fa-circle-question"></i>
+                            </div>
+                            <div class="legend-items">
+                                <div class="legend-item">
+                                    <span class="legend-dot online"></span>
+                                    <span>Akurasi tinggi</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-dot gangguan"></span>
+                                    <span>Akurasi sedang</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-dot offline"></span>
+                                    <span>Perlu verifikasi</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+
+            <!-- ======================================================================
+                 VIEW 2: STATISTIK & GRAFIK (FASE 2)
+                 ====================================================================== -->
+            <section class="tab-view" id="analytics-view">
+                <div class="analytics-view-container">
+                    <div class="analytics-content-wrapper">
+                        <!-- Page Header -->
+                        <div class="view-page-header">
+                            <div>
+                                <h1 class="view-page-title">
+                                    <i class="fa-solid fa-chart-column" style="color: var(--primary);"></i>
+                                    Statistik & Grafik <span>CCTV Trans Jawa</span>
+                                </h1>
+                                <p class="view-page-subtitle">
+                                    Ringkasan 307 titik CCTV dan kualitas estimasi koordinat pada 17 ruas Tol Trans Jawa.
+                                </p>
+                            </div>
+                            <button class="btn-primary" onclick="switchTab('map-view')">
+                                <i class="fa-solid fa-map-location-dot"></i> Lihat di Peta
+                            </button>
+                        </div>
+
+                        <!-- Metric Cards Grid -->
+                        <div class="stats-cards-grid">
+                            <div class="stat-metric-card primary">
+                                <div class="stat-card-glow"></div>
+                                <div class="stat-card-header">
+                                    <span class="stat-card-label">Total Titik CCTV</span>
+                                    <i class="fa-solid fa-video stat-card-icon" style="color: var(--primary);"></i>
+                                </div>
+                                <div class="stat-card-value" id="statTotalCctv">0</div>
+                                <div class="stat-card-meta">
+                                    <i class="fa-solid fa-layer-group"></i> Tersebar Merak s/d Banyuwangi
+                                </div>
+                            </div>
+
+                            <div class="stat-metric-card success">
+                                <div class="stat-card-glow"></div>
+                                <div class="stat-card-header">
+                                    <span class="stat-card-label">Akurasi Tinggi</span>
+                                    <i class="fa-solid fa-circle-check stat-card-icon" style="color: var(--status-online);"></i>
+                                </div>
+                                <div class="stat-card-value" id="statOnlineCctv" style="color: var(--status-online);">0</div>
+                                <div class="stat-card-meta" id="statOnlinePct">
+                                    <i class="fa-solid fa-location-dot"></i> Kualitas koordinat tinggi
+                                </div>
+                            </div>
+
+                            <div class="stat-metric-card warning">
+                                <div class="stat-card-glow"></div>
+                                <div class="stat-card-header">
+                                    <span class="stat-card-label">Akurasi Sedang</span>
+                                    <i class="fa-solid fa-triangle-exclamation stat-card-icon" style="color: var(--status-gangguan);"></i>
+                                </div>
+                                <div class="stat-card-value" id="statGangguanCctv" style="color: var(--status-gangguan);">0</div>
+                                <div class="stat-card-meta">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> Perlu validasi tambahan
+                                </div>
+                            </div>
+
+                            <div class="stat-metric-card danger">
+                                <div class="stat-card-glow"></div>
+                                <div class="stat-card-header">
+                                    <span class="stat-card-label">Perlu Verifikasi</span>
+                                    <i class="fa-solid fa-circle-xmark stat-card-icon" style="color: var(--status-offline);"></i>
+                                </div>
+                                <div class="stat-card-value" id="statOfflineCctv" style="color: var(--status-offline);">0</div>
+                                <div class="stat-card-meta">
+                                    <i class="fa-solid fa-magnifying-glass-location"></i> Perlu verifikasi lapangan
+                                </div>
+                            </div>
+
+                            <div class="stat-metric-card info">
+                                <div class="stat-card-glow"></div>
+                                <div class="stat-card-header">
+                                    <span class="stat-card-label">Ruas dalam Dataset</span>
+                                    <i class="fa-solid fa-road stat-card-icon" style="color: var(--accent-cyan);"></i>
+                                </div>
+                                <div class="stat-card-value" style="color: var(--accent-cyan);">17 <span style="font-size: 16px;">RUAS</span></div>
+                                <div class="stat-card-meta">
+                                    <i class="fa-solid fa-route"></i> Jakarta hingga koridor Banyuwangi
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Grid -->
+                        <div class="charts-grid-container">
+                            <!-- Chart 1: CCTV Distribution per Ruas -->
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <div class="chart-title">
+                                        <i class="fa-solid fa-chart-simple" style="color: var(--primary);"></i>
+                                        Sebaran Titik Kamera per Ruas Tol
+                                    </div>
+                                    <span style="font-size: 11px; color: var(--text-muted);">Trans Jawa Corridor</span>
+                                </div>
+                                <div class="chart-canvas-wrapper" style="height: 320px;">
+                                    <canvas id="chartRuasTol"></canvas>
+                                </div>
+                            </div>
+
+                            <!-- Chart 2: Status CCTV Doughnut -->
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <div class="chart-title">
+                                        <i class="fa-solid fa-pie-chart" style="color: var(--accent-cyan);"></i>
+                                        Akurasi Lokasi CCTV
+                                    </div>
+                                </div>
+                                <div class="chart-canvas-wrapper" style="height: 320px;">
+                                    <canvas id="chartStatusCctv"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ======================================================================
+                 VIEW 3: DAFTAR DATA CCTV / TABEL (FASE 3)
+                 ====================================================================== -->
+            <section class="tab-view" id="table-view">
+                <div class="table-view-container">
+                    <div class="table-content-wrapper">
+                        <!-- Page Header -->
+                        <div class="view-page-header">
+                            <div>
+                                <h1 class="view-page-title">
+                                    <i class="fa-solid fa-table-list" style="color: var(--primary);"></i>
+                                    Daftar Data <span>Kamera CCTV</span>
+                                </h1>
+                                <p class="view-page-subtitle">
+                                    Dataset 307 titik CCTV dengan koordinat estimasi, metode pemetaan, pencarian, filter, sorot peta, dan ekspor data.
+                                </p>
+                            </div>
+                            <div class="table-export-group">
+                                <button class="btn-secondary" onclick="exportDataToCSV()">
+                                    <i class="fa-solid fa-file-csv" style="color: #10b981;"></i> Unduh CSV
+                                </button>
+                                <button class="btn-secondary" onclick="exportDataToJSON()">
+                                    <i class="fa-solid fa-file-code" style="color: #38bdf8;"></i> Unduh JSON
+                                </button>
+                                <button class="btn-secondary" onclick="window.print()">
+                                    <i class="fa-solid fa-print"></i> Cetak Laporan
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Data Table Container -->
+                        <div class="data-table-card">
+                            <div class="table-responsive-box">
+                                <table class="cctv-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>No</th>
+                                            <th>Kode ID</th>
+                                            <th>Nama Titik Pantauan</th>
+                                            <th>Ruas Tol</th>
+                                            <th>KM Posisi</th>
+                                            <th>Metode Koordinat</th>
+                                            <th>Akurasi Lokasi</th>
+                                            <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="cctvTableBody">
+                                        <!-- Rendered dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Table Pagination Footer -->
+                            <div class="table-pagination-footer">
+                                <div id="tablePaginationInfo">Menampilkan 0 - 0 dari 0 Kamera</div>
+                                <div class="pagination-controls" id="paginationControls">
+                                    <!-- Rendered dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ======================================================================
+                 VIEW 4: PANEL ADMIN & KELOLA DATA CCTV (FASE 4)
+                 ====================================================================== -->
+            <section class="tab-view" id="admin-view">
+                <div class="admin-view-container">
+                    <div class="admin-content-wrapper">
+                        <!-- Admin Control Banner -->
+                        <div class="admin-banner-card">
+                            <div class="admin-banner-info">
+                                <div class="admin-banner-avatar">
+                                    <i class="fa-solid fa-user-shield"></i>
+                                </div>
+                                <div class="admin-banner-titles">
+                                    <h2>Panel Manajemen Data CCTV Tol Trans Jawa</h2>
+                                    <p>Anda masuk dengan akses Administrator berwenang untuk menambah, memperbarui, dan menghapus titik pemantauan CCTV.</p>
+                                </div>
+                            </div>
+                            <div class="admin-banner-actions">
+                                <span class="api-status-pill" id="apiStorageBadge" title="Status sumber data">
+                                    <i class="fa-solid fa-server"></i> Memeriksa API...
+                                </span>
+                                <button class="btn-primary" onclick="openAddModal()">
+                                    <i class="fa-solid fa-circle-plus"></i> Tambah Titik CCTV
+                                </button>
+                                <input type="file" id="csvImportInput" accept=".csv,text/csv" hidden onchange="handleCsvImport(event)">
+                                <button class="btn-secondary" onclick="document.getElementById('csvImportInput').click()">
+                                    <i class="fa-solid fa-file-import"></i> Import CSV
+                                </button>
+                                <button class="btn-secondary" onclick="openModal('changePasswordModal')">
+                                    <i class="fa-solid fa-key"></i> Atur Sandi
+                                </button>
+                                <button class="btn-secondary" onclick="restoreDefaultDataset()" title="Kembalikan dataset asli">
+                                    <i class="fa-solid fa-rotate-left"></i> Reset Default
+                                </button>
+                                <button class="btn-secondary" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171;" onclick="handleLogout()">
+                                    <i class="fa-solid fa-right-from-bracket"></i> Keluar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Data Table with Admin CRUD buttons -->
+                        <div class="view-page-header" style="margin-top: 10px;">
+                            <div>
+                                <h2 style="font-size: 18px; font-weight: 700; color: var(--text-heading);">
+                                    Semua Titik CCTV Terdaftar
+                                </h2>
+                                <p style="font-size: 12px; color: var(--text-muted);">
+                                    Gunakan tombol aksi untuk mengedit atau menghapus titik. Import CSV memperbarui data berdasarkan Kode ID.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Reused Data Table View inside Admin Panel -->
+                        <div class="data-table-card">
+                            <div class="table-responsive-box">
+                                <table class="cctv-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>No</th>
+                                            <th>Kode ID</th>
+                                            <th>Nama Titik Pantauan</th>
+                                            <th>Ruas Tol</th>
+                                            <th>KM Posisi</th>
+                                            <th>Metode Koordinat</th>
+                                            <th>Akurasi Lokasi</th>
+                                            <th>Kelola Data</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="adminTableBody">
+                                        <!-- Shared or synchronized with cctvTableBody -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- ==========================================================================
+             MODAL: LIVE STREAM CCTV SIMULATOR (FASE 1: DETAIL INFO)
+             ========================================================================== -->
+        <div class="modal-backdrop" id="cctvStreamModal">
+            <div class="modal-dialog cctv-stream-modal-dialog">
+                <div class="stream-modal-header">
+                    <div class="stream-header-info">
+                        <div class="stream-live-pill">
+                            <span class="stream-live-dot"></span> PRATINJAU DATA
+                        </div>
+                        <div>
+                            <h3 style="font-size: 15px; font-weight: 800; color: #ffffff;" id="streamModalTitle">
+                                CCTV Tol Trans Jawa
+                            </h3>
+                            <div style="font-size: 11px; color: #94a3b8;" id="streamLocationLabel">
+                                Lokasi Tol & KM
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- View Mode Toggle: Live Simulation vs Interactive Real-Time Point Map -->
+                    <div class="stream-mode-toggle-group">
+                        <button class="stream-mode-tab-btn active" id="tabModeLive" onclick="setStreamViewMode('live')">
+                            <i class="fa-solid fa-video"></i> Simulasi Visual
+                        </button>
+                        <button class="stream-mode-tab-btn" id="tabModeMap" onclick="setStreamViewMode('map')">
+                            <i class="fa-solid fa-map-location-dot"></i> Peta Koordinat
+                        </button>
+                    </div>
+
+                    <button class="modal-close-btn" onclick="closeStreamModal()" title="Tutup Pemutar">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Video / Interactive Map Stage -->
+                <div class="cctv-canvas-stage">
+                    <!-- 1. Live Animated Highway Canvas -->
+                    <canvas id="cctvStreamCanvas"></canvas>
+
+                    <!-- 2. Interactive Real-Time Mini-Map (No static AI photos) -->
+                    <div id="streamMiniMapContainer" style="display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 2;">
+                        <div id="cctvMiniMap" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                    <div class="cctv-scanline-overlay"></div>
+
+                    <!-- Video Telemetry HUD -->
+                    <div class="cctv-hud-top-left">
+                        <div style="font-weight: 800; font-size: 13px;" id="streamCameraCode">CCTV-TRANSJAWA</div>
+                        <div style="color: #38bdf8;">JASA MARGA TRAFFIC INTELLIGENCE</div>
+                        <div style="font-size: 10px; color: #94a3b8;">MONITORING SEKSI TRANS JAWA</div>
+                    </div>
+
+                    <div class="cctv-hud-top-right">
+                        <div id="streamHudTime">--/--/---- --:--:-- WIB</div>
+                        <div style="color: #10b981; font-size: 11px;">CH-01 [1080P/30FPS - HIKVISION IP67]</div>
+                    </div>
+
+                    <div class="cctv-hud-bottom-left">
+                        <div>LATENSI: 1.1s | KECEPATAN STREAM: 4.8 Mbps | CODEC: H.265</div>
+                    </div>
+                </div>
+
+                <!-- Player Controller Bar -->
+                <div class="stream-controller-bar">
+                    <div class="stream-controls-left">
+                        <button class="stream-btn" id="btnToggleStream" onclick="toggleStreamPlay()">
+                            <i class="fa-solid fa-pause"></i> Jeda
+                        </button>
+                        <button class="stream-btn" onclick="initCanvasStream(AppState.activeStreamCctv)">
+                            <i class="fa-solid fa-arrows-rotate"></i> Muat Ulang
+                        </button>
+                        <button class="stream-btn" onclick="toggleNightVision()">
+                            <i class="fa-solid fa-eye"></i> Night Vision
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <a id="btnExternalGoogleMaps" href="#" target="_blank" class="stream-btn" style="text-decoration: none; color: #38bdf8; border-color: rgba(56,189,248,0.4);" title="Buka Titik Ini di Google Maps">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Buka di Google Maps
+                        </a>
+                        <button class="stream-btn" onclick="document.getElementById('cctvStreamCanvas').requestFullscreen()">
+                            <i class="fa-solid fa-expand"></i> Layar Penuh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Telemetry Stats Panel -->
+                <div class="stream-telemetry-grid">
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">KM Titik</span>
+                        <span class="telemetry-value" id="telemetryKm" style="color: #fbbf24;">KM --</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Metode Koordinat</span>
+                        <span class="telemetry-value" id="telemetryArah">--</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Akurasi Lokasi</span>
+                        <span class="telemetry-value" id="telemetrySpeed" style="color: #38bdf8;">-- km/jam</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Sumber Data</span>
+                        <span class="telemetry-value" id="telemetryTraffic" style="color: #10b981;">Lancar</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Koordinat GPS</span>
+                        <span class="telemetry-value" id="telemetryCoords">--</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Status Verifikasi</span>
+                        <span class="telemetry-value" id="telemetryRes">1080p Full HD</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Transmisi Jaringan</span>
+                        <span class="telemetry-value" style="color: #10b981;">Fiber Optik 10G</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Pusat Kendali</span>
+                        <span class="telemetry-value">Jasa Marga Command Center</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==========================================================================
+             MODAL: LOGIN ADMIN (FASE 4)
+             ========================================================================== -->
+        <div class="modal-backdrop" id="loginModal">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-header">
+                    <div class="modal-title">
+                        <i class="fa-solid fa-shield-halved" style="color: var(--primary);"></i> Masuk Admin Command Center
+                    </div>
+                    <button class="modal-close-btn" onclick="closeModal('loginModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <form id="loginForm" onsubmit="handleLoginSubmit(event)">
+                    <div class="modal-body">
+                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+                            Masukkan kredensial otentikasi administrator untuk mengelola titik CCTV Tol Trans Jawa.
+                        </p>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Nama Pengguna (Username)</label>
+                            <input type="text" id="loginUsername" class="form-control" placeholder="Contoh: admin" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Kata Sandi (Password)</label>
+                            <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required>
+                        </div>
+
+                        <div style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3); border-radius: var(--radius-sm); padding: 10px; display: flex; align-items: center; justify-content: space-between;">
+                            <div style="font-size: 11px; color: #fb923c;">
+                                <strong>Akun Demo:</strong> admin / admin123
+                            </div>
+                            <button type="button" class="btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="fillDemoCredentials()">
+                                Isi Otomatis
+                            </button>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" onclick="closeModal('loginModal')">Batal</button>
+                        <button type="submit" class="btn-primary">
+                            <i class="fa-solid fa-right-to-bracket"></i> Masuk Akun
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ==========================================================================
+             MODAL: ATUR ULANG KATA SANDI (FASE 4)
+             ========================================================================== -->
+        <div class="modal-backdrop" id="changePasswordModal">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-header">
+                    <div class="modal-title">
+                        <i class="fa-solid fa-key" style="color: var(--primary);"></i> Atur Ulang Kata Sandi Admin
+                    </div>
+                    <button class="modal-close-btn" onclick="closeModal('changePasswordModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <form id="changePasswordForm" onsubmit="handleChangePasswordSubmit(event)">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="form-label">Kata Sandi Saat Ini</label>
+                            <input type="password" id="oldPassword" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Kata Sandi Baru</label>
+                            <input type="password" id="newPassword" class="form-control" placeholder="Minimal 8 karakter" minlength="8" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Ulangi Kata Sandi Baru</label>
+                            <input type="password" id="confirmPassword" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" onclick="closeModal('changePasswordModal')">Batal</button>
+                        <button type="submit" class="btn-primary">Simpan Kata Sandi</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ==========================================================================
+             MODAL: FORM TAMBAH / UBAH CCTV (FASE 4: KELOLA DATA CCTV)
+             ========================================================================== -->
+        <div class="modal-backdrop" id="cctvFormModal">
+            <div class="modal-dialog modal-md">
+                <div class="modal-header">
+                    <div class="modal-title" id="cctvFormModalTitle">
+                        <i class="fa-solid fa-video" style="color: var(--primary);"></i> Form Data Titik CCTV
+                    </div>
+                    <button class="modal-close-btn" onclick="closeModal('cctvFormModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <form id="cctvForm" onsubmit="handleCctvFormSubmit(event)">
+                    <div class="modal-body">
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Kode ID Kamera *</label>
+                                <input type="text" id="formCode" class="form-control" placeholder="CCTV-JPK-KM57-A" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Nama Titik Pantau *</label>
+                                <input type="text" id="formNama" class="form-control" placeholder="Rest Area KM 57 A" required>
+                            </div>
+                        </div>
+
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Ruas Tol Trans Jawa *</label>
+                                <select id="formRuas" class="form-control">
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">KM Posisi Jalan *</label>
+                                <input type="text" id="formKm" class="form-control" placeholder="KM 57+500" required>
+                            </div>
+                        </div>
+
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Informasi Arah</label>
+                                <select id="formArah" class="form-control">
+                                    <option value="Tidak dicantumkan pada sumber">Tidak dicantumkan pada sumber</option>
+                                    <option value="Arah Menuju Surabaya / Timur">Arah Menuju Surabaya / Jawa Timur</option>
+                                    <option value="Arah Menuju Jakarta / Barat">Arah Menuju Jakarta / Jawa Barat</option>
+                                    <option value="Dua Arah">Dua Arah (Median Simetris)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Posisi Pemasangan Fisik *</label>
+                                <select id="formPosisi" class="form-control">
+                                    <option value="Rest Area">Rest Area</option>
+                                    <option value="Gerbang Tol">Gerbang Tol</option>
+                                    <option value="Median Jalan">Median Jalan</option>
+                                    <option value="Overpass / Flyover">Overpass / Flyover</option>
+                                    <option value="Bahu Jalan Kiri">Bahu Jalan Kiri</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Latitude *</label>
+                                <input type="number" step="any" id="formLat" class="form-control" placeholder="-6.3478" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Longitude *</label>
+                                <input type="number" step="any" id="formLng" class="form-control" placeholder="107.3012" required>
+                            </div>
+                        </div>
+
+                        <!-- Button to Pick Coordinates Directly on Map -->
+                        <button type="button" class="btn-coords-picker" onclick="startCoordinatePicker()">
+                            <i class="fa-solid fa-map-pin"></i> Klik Titik di Peta untuk Ambil Latitude & Longitude
+                        </button>
+
+                        <div class="form-grid-2" style="margin-top: 4px;">
+                            <div class="form-group">
+                                <label class="form-label">Akurasi Lokasi *</label>
+                                <select id="formStatus" class="form-control">
+                                    <option value="online">🟢 Akurasi Tinggi</option>
+                                    <option value="gangguan">🟡 Akurasi Sedang</option>
+                                    <option value="offline">🔴 Perlu Verifikasi</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Status Data Operasional</label>
+                                <select id="formKondisi" class="form-control">
+                                    <option value="Data operasional tidak tersedia">Data operasional tidak tersedia</option>
+                                    <option value="Lancar">Lancar</option>
+                                    <option value="Ramai Lancar">Ramai Lancar</option>
+                                    <option value="Padat Merayap">Padat Merayap</option>
+                                    <option value="Macet">Macet / Antrean Panjang</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Keterangan Tambahan / Catatan Petugas</label>
+                            <textarea id="formKeterangan" class="form-control" placeholder="Catatan kondisi kamera atau panduan pantauan..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" onclick="closeModal('cctvFormModal')">Batal</button>
+                        <button type="submit" class="btn-primary">
+                            <i class="fa-solid fa-floppy-disk"></i> Simpan Titik CCTV
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ==========================================================================
+             MODAL: KONFIRMASI HAPUS CCTV (FASE 4)
+             ========================================================================== -->
+        <div class="modal-backdrop" id="deleteConfirmModal">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-header">
+                    <div class="modal-title" style="color: var(--status-offline);">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Konfirmasi Hapus Titik
+                    </div>
+                    <button class="modal-close-btn" onclick="closeModal('deleteConfirmModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p style="font-size: 13px; color: var(--text-main);">
+                        Apakah Anda yakin ingin menghapus kamera CCTV berikut dari basis data?
+                    </p>
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px;">
+                        <strong id="deleteTargetName" style="color: #f87171; font-size: 13px;">--</strong>
+                    </div>
+                    <p style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">
+                        Tindakan ini tidak dapat dibatalkan secara langsung kecuali dilakukan pemulihan default dataset.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('deleteConfirmModal')">Batal</button>
+                    <button type="button" class="btn-primary" style="background: #ef4444;" onclick="executeDeleteCctv()">
+                        <i class="fa-solid fa-trash-can"></i> Ya, Hapus Titik
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications Container -->
+        <div class="toast-container" id="toastContainer"></div>
+
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- App Scripts with Cache-Busting -->
+    <script src="js/cctv-dataset.js?v=36.0"></script>
+    <script src="js/data.js?v=36.0"></script>
+    <script src="js/app.js?v=36.0"></script>
+</body>
+</html>
