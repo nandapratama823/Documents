@@ -16,6 +16,7 @@ from reportlab.platypus import (
     TableStyle,
     KeepTogether,
     Flowable,
+    NextPageTemplate,
 )
 from pathlib import Path
 
@@ -277,6 +278,7 @@ story += [
     P("Dokumen belajar untuk presentasi dan sidang proyek", "DocSubtitle"),
     Spacer(1, 4 * mm),
     P("Versi 1.0 | Disusun dari implementasi aktual proyek", "DocSubtitle"),
+    NextPageTemplate("Body"),
     PageBreak(),
 ]
 
@@ -646,13 +648,13 @@ story += [
     callout("Proyek ini adalah dashboard Web GIS yang menampilkan 307 titik CCTV pada 17 ruas Tol Trans Jawa. Frontend dibuat menggunakan HTML, CSS, JavaScript, Leaflet, dan Chart.js. Frontend mengambil data melalui REST API Express. Backend menggunakan repository pattern sehingga dapat berjalan dengan JSON file untuk pengembangan lokal atau PostgreSQL/PostGIS untuk penyimpanan persisten. Admin dapat melakukan CRUD dan impor CSV melalui endpoint yang dilindungi token. PostGIS menyimpan lokasi sebagai geometri Point dengan SRID 4326 dan indeks GiST. Perlu ditekankan bahwa koordinat pada sistem merupakan estimasi geospasial dan detail video masih berupa simulasi, bukan CCTV real-time."),
     P("Urutan demo yang disarankan", "Subsection"),
     *bullets([
-        "Buka halaman peta dan jelaskan 307 marker serta arti warna akurasi.",
-        "Gunakan pencarian dan filter ruas untuk menunjukkan interaktivitas.",
-        "Buka satu marker dan tampilkan detail koordinat serta metode pemetaan.",
-        "Masuk ke halaman statistik untuk menunjukkan distribusi data.",
-        "Buka tabel dan jelaskan pagination serta ekspor.",
-        "Login admin dan tunjukkan form tambah atau edit tanpa perlu menyimpan data demo.",
-        "Tutup dengan menjelaskan arsitektur API, PostGIS, dan batasan sistem.",
+        "Tampilkan peta, 307 marker, dan arti warna akurasi.",
+        "Gunakan pencarian dan filter ruas.",
+        "Buka marker dan jelaskan metode koordinat.",
+        "Tunjukkan halaman statistik dan tabel.",
+        "Jelaskan pagination dan ekspor data.",
+        "Tunjukkan form admin tanpa menyimpan data.",
+        "Tutup dengan arsitektur API, PostGIS, dan batasan sistem.",
     ]),
     P("Istilah yang perlu dikuasai", "Subsection"),
 ]
@@ -668,7 +670,12 @@ terms = [
     ["HMAC", "Tanda tangan berbasis secret untuk menjamin integritas token."],
     ["Fallback", "Mekanisme cadangan saat layanan utama gagal."],
 ]
-story.append(data_table(["Istilah", "Penjelasan"], terms, [4.2 * cm, 12.1 * cm]))
+terms_table = data_table(["Istilah", "Penjelasan"], terms, [4.2 * cm, 12.1 * cm])
+terms_table.setStyle(TableStyle([
+    ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+]))
+story.append(terms_table)
 story += [
     Spacer(1, 7 * mm),
     callout("Tips menjawab: bedakan dengan jelas antara fitur yang sudah diimplementasikan, fitur simulasi, dan rencana pengembangan. Jawaban yang jujur dan teknis biasanya lebih kuat daripada mengklaim sistem sudah production-ready.", GREEN, colors.HexColor("#F0FDF4")),
@@ -678,8 +685,8 @@ story += [
         "Pastikan server dapat dibuka di http://127.0.0.1:8765.",
         "Siapkan kredensial demo admin jika memang diizinkan untuk presentasi.",
         "Hindari menyebut simulasi sebagai stream CCTV asli.",
-        "Siapkan penjelasan mengenai sumber dan keterbatasan koordinat.",
-        "Ingat angka utama: 307 CCTV, 17 ruas, 224 tinggi, 31 sedang, 52 perlu verifikasi.",
+        "Jelaskan sumber dan batasan koordinat.",
+        "Hafalkan angka: 307, 17, 224, 31, dan 52.",
     ]),
 ]
 

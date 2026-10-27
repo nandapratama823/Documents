@@ -46,6 +46,10 @@ export function createApp({ repository, projectRoot, auth = {} }) {
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
 
   const requireAdmin = (req, res, next) => {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');

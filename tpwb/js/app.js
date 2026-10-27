@@ -25,19 +25,26 @@ const AppState = {
     // Map & Layers
     map: null,
     markersLayer: null,
-    currentBasemap: 'dark',
+    currentBasemap: 'osm',
     tileLayers: {},
     markerMap: new Map(), // cctvId -> marker
+    locationAssistLayer: null,
+    realtimeLocationLayer: null,
+    nearestRouteLayer: null,
+    locationWatchId: null,
+    userLocation: null,
+    pendingNearestFocus: false,
+    lastLocationFocusAt: 0,
+    activeMission: {
+        title: 'Mulai dari aksi cepat',
+        text: 'Cari titik terdekat, prioritaskan validasi, atau analisis cakupan ruas.'
+    },
 
     // Coordinate Picking Mode (Admin Add Form)
     isPickingCoordinates: false,
 
-    // Live Stream Simulator
-    canvasAnimationId: null,
-    isStreamPlaying: true,
-    isNightVision: false,
-    activeStreamCctv: null,
-    streamVehicles: []
+    // Detail point currently displayed
+    activeDetailCctv: null
 };
 
 // ==========================================================================
@@ -48,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadCctvData();
     initMap();
     initEventListeners();
+    initializeRealtimeLocation();
     initAuthUI();
     renderSidebarList();
     renderStatsAndCharts();
@@ -124,19 +132,12 @@ function initMap() {
         zoomControl: false // Custom controls used
     });
 
-    // Basemaps: 100% Free, High Quality Google Maps, OSM & ESRI Layers
+    // Reliable basemaps: OpenStreetMap is the default, with ESRI alternatives.
     AppState.tileLayers = {
-        google_road: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-            attribution: '&copy; Google Maps | Peta Jalan Pulau Jawa',
-            maxZoom: 20
-        }),
-        google_hybrid: L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-            attribution: '&copy; Google Satellite & Roads | Citra Satelit Pulau Jawa',
-            maxZoom: 20
-        }),
-        osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> kontributor | Peta Trans Jawa',
-            maxZoom: 19
+        osm: L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> kontributor, Tiles style by HOT | Peta Trans Jawa',
+            maxZoom: 20,
+            subdomains: 'abc'
         }),
         satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
             attribution: '&copy; Esri World Imagery | Citra Satelit HD Pulau Jawa',
@@ -148,9 +149,9 @@ function initMap() {
         })
     };
 
-    // Default: Google Maps Jalan (Peta Pulau Jawa paling lengkap dan familiar)
-    AppState.currentBasemap = 'google_road';
-    AppState.tileLayers.google_road.addTo(AppState.map);
+    // OpenStreetMap is always shown first.
+    AppState.currentBasemap = 'osm';
+    AppState.tileLayers.osm.addTo(AppState.map);
 
     // Layer Group for CCTV Markers
     AppState.markersLayer = L.layerGroup().addTo(AppState.map);
@@ -266,7 +267,7 @@ function createPopupContent(cctv) {
             </div>
 
             <div style="display: flex; gap: 6px; margin-top: 10px;">
-                <button class="popup-btn-stream" style="flex: 1;" onclick="openStreamModal('${cctv.id}')">
+                <button class="popup-btn-stream" style="flex: 1;" onclick="openDetailModal('${cctv.id}')">
                     <i class="fa-solid fa-circle-info"></i> Detail Titik
                 </button>
                 <button class="popup-btn-stream" style="background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); padding: 8px 12px;" onclick="AppState.map.setView([${cctv.lat}, ${cctv.lng}], 16);" title="Perbesar Titik di Peta">
@@ -311,7 +312,7 @@ function resetTransJawaView() {
     showToast('Menampilkan seluruh Peta Pulau Jawa (Merak s/d Banyuwangi)', 'info');
 }
 
-// Switch Basemap between Google Maps, OSM, ESRI Satellite, and Dark Canvas
+// Switch basemap between OpenStreetMap and ESRI alternatives.
 function switchBasemap(type) {
     Object.values(AppState.tileLayers).forEach(layer => {
         if (AppState.map.hasLayer(layer)) {
@@ -329,8 +330,6 @@ function switchBasemap(type) {
         });
 
         const names = {
-            google_road: 'Google Maps Jalan (Pulau Jawa)',
-            google_hybrid: 'Google Maps Satelit & Jalan (Hybrid)',
             osm: 'OpenStreetMap Standard Pulau Jawa',
             satellite: 'Citra Satelit ESRI World Imagery',
             dark: 'Peta Mode Malam Trans Jawa'
@@ -376,6 +375,7 @@ function applyFilters() {
     }
     renderSidebarList();
     renderStatsAndCharts();
+    renderOperationalOverview();
     AppState.tablePage = 1;
     renderDataTable();
 }
@@ -405,6 +405,19 @@ function resetAllFilters() {
     AppState.selectedRuas = 'all';
     AppState.selectedStatus = 'all';
     AppState.selectedArah = 'all';
+    AppState.activeMission = {
+        title: 'Filter dikembalikan',
+        text: 'Seluruh titik CCTV kembali ditampilkan dan siap dianalisis.'
+    };
+
+    if (AppState.map && AppState.locationAssistLayer) {
+        AppState.map.removeLayer(AppState.locationAssistLayer);
+        AppState.locationAssistLayer = null;
+    }
+    if (AppState.map && AppState.nearestRouteLayer) {
+        AppState.map.removeLayer(AppState.nearestRouteLayer);
+        AppState.nearestRouteLayer = null;
+    }
 
     const searchInput = document.getElementById('searchInput');
     if (searchInput) searchInput.value = '';
@@ -416,9 +429,476 @@ function resetAllFilters() {
     document.querySelectorAll('.filter-pill[data-filter-type]').forEach(pill => {
         pill.classList.toggle('active', pill.dataset.filterVal === 'all');
     });
-
     applyFilters();
     showToast('Semua filter berhasil direset.', 'info');
+}
+
+// ==========================================================================
+// 3B. OPERATIONAL WORKFLOWS & DECISION SUPPORT
+// ==========================================================================
+function renderOperationalOverview() {
+    const data = AppState.filteredList;
+    const highCount = data.filter(cctv => cctv.status === 'online').length;
+    const ruasCount = new Set(data.map(cctv => cctv.ruasId)).size;
+    const highPct = data.length ? Math.round((highCount / data.length) * 100) : 0;
+
+    const visibleEl = document.getElementById('mapVisibleCount');
+    const ruasEl = document.getElementById('mapRuasCount');
+    const qualityEl = document.getElementById('mapQualityPct');
+    const missionTitleEl = document.getElementById('opsMissionTitle');
+    const missionTextEl = document.getElementById('opsMissionText');
+    const mapMissionEl = document.getElementById('mapContextMission');
+
+    if (visibleEl) visibleEl.textContent = data.length;
+    if (ruasEl) ruasEl.textContent = ruasCount;
+    if (qualityEl) qualityEl.textContent = `${highPct}%`;
+    if (missionTitleEl) missionTitleEl.textContent = AppState.activeMission.title;
+    if (missionTextEl) missionTextEl.textContent = AppState.activeMission.text;
+    if (mapMissionEl) mapMissionEl.textContent = AppState.activeMission.text;
+}
+
+function setOperationalMission(title, text) {
+    AppState.activeMission = { title, text };
+    renderOperationalOverview();
+}
+
+function syncFilterControls() {
+    const searchInput = document.getElementById('searchInput');
+    const ruasSelect = document.getElementById('filterRuasSelect');
+    if (searchInput) searchInput.value = AppState.searchQuery;
+    if (ruasSelect) ruasSelect.value = AppState.selectedRuas;
+
+    document.querySelectorAll('.filter-pill[data-filter-type="status"]').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.filterVal === AppState.selectedStatus);
+    });
+}
+
+function fitCctvListOnMap(list, maxZoom = 12) {
+    if (!AppState.map || !list.length) return;
+    const latLngs = list
+        .filter(cctv => Number.isFinite(cctv.lat) && Number.isFinite(cctv.lng))
+        .map(cctv => [cctv.lat, cctv.lng]);
+    if (!latLngs.length) return;
+    if (latLngs.length === 1) {
+        AppState.map.setView(latLngs[0], Math.min(maxZoom, 15));
+        return;
+    }
+    AppState.map.fitBounds(latLngs, { padding: [55, 55], maxZoom });
+}
+
+function showVerificationPriorities() {
+    AppState.searchQuery = '';
+    AppState.selectedRuas = 'all';
+    AppState.selectedStatus = 'offline';
+    AppState.selectedArah = 'all';
+    syncFilterControls();
+    applyFilters();
+    switchTab('map-view');
+    fitCctvListOnMap(AppState.filteredList, 11);
+
+    const count = AppState.filteredList.length;
+    setOperationalMission(
+        'Prioritas validasi koordinat',
+        `${count} titik berstatus perlu verifikasi sedang ditampilkan untuk pemeriksaan lanjutan.`
+    );
+    showToast(`${count} titik prioritas verifikasi ditampilkan.`, count ? 'info' : 'success');
+}
+
+function haversineDistanceKm(lat1, lng1, lat2, lng2) {
+    const toRad = value => value * Math.PI / 180;
+    const earthRadiusKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(distanceKm) {
+    return distanceKm < 1
+        ? `${Math.round(distanceKm * 1000)} m`
+        : `${distanceKm.toFixed(distanceKm < 10 ? 1 : 0)} km`;
+}
+
+function getNearestCctvCandidates() {
+    if (!AppState.userLocation) return [];
+    const searchValue = (document.getElementById('nearestCctvSearch')?.value || '').trim().toLowerCase();
+    const radiusValue = document.getElementById('nearestRadiusSelect')?.value || '25';
+    const radiusKm = radiusValue === 'all' ? Infinity : Number(radiusValue);
+    const { lat, lng } = AppState.userLocation;
+
+    return AppState.cctvList
+        .filter(cctv => Number.isFinite(cctv.lat) && Number.isFinite(cctv.lng))
+        .map(cctv => ({
+            cctv,
+            distanceKm: haversineDistanceKm(lat, lng, cctv.lat, cctv.lng)
+        }))
+        .filter(item => item.distanceKm <= radiusKm)
+        .filter(item => {
+            if (!searchValue) return true;
+            return [item.cctv.nama, item.cctv.id, item.cctv.km, item.cctv.ruasNama]
+                .join(' ')
+                .toLowerCase()
+                .includes(searchValue);
+        })
+        .sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+function renderNearestCctvResults() {
+    const container = document.getElementById('nearestCctvResults');
+    if (!container) return;
+
+    if (!AppState.userLocation) {
+        container.innerHTML = `
+            <div class="nearest-empty-state">
+                <i class="fa-solid fa-location-dot"></i>
+                <span>Aktifkan lokasi untuk melihat CCTV terdekat secara langsung.</span>
+            </div>
+        `;
+        return;
+    }
+
+    const candidates = getNearestCctvCandidates();
+    if (!candidates.length) {
+        container.innerHTML = `
+            <div class="nearest-empty-state">
+                <i class="fa-solid fa-magnifying-glass-location"></i>
+                <span>Tidak ada CCTV yang cocok pada radius dan pencarian ini.</span>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = candidates.slice(0, 4).map(({ cctv, distanceKm }, index) => `
+        <div class="nearest-result-item">
+            <button class="nearest-result-main" onclick="focusNearestCctv('${cctv.id}')">
+                <span class="nearest-result-rank">${String(index + 1).padStart(2, '0')}</span>
+                <span class="nearest-result-copy">
+                    <strong>${escapeHtml(cctv.nama)}</strong>
+                    <small>${escapeHtml(cctv.ruasNama)} · ${escapeHtml(cctv.km)}</small>
+                </span>
+                <span class="nearest-distance">${formatDistance(distanceKm)}</span>
+            </button>
+            <button class="nearest-detail-btn" onclick="openDetailModal('${cctv.id}')" title="Buka detail CCTV" aria-label="Buka detail ${escapeHtml(cctv.nama)}">
+                <i class="fa-solid fa-circle-info"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function updateRealtimeLocationUI() {
+    const badge = document.getElementById('locationLiveBadge');
+    const coordsEl = document.getElementById('liveLocationCoords');
+    const accuracyEl = document.getElementById('liveLocationAccuracy');
+    const button = document.getElementById('btnLiveLocation');
+    const isWatching = AppState.locationWatchId !== null;
+
+    if (badge) {
+        badge.classList.toggle('active', isWatching);
+        badge.innerHTML = `<span></span> ${isWatching ? 'Live' : 'Belum aktif'}`;
+    }
+    if (button) {
+        button.classList.toggle('active', isWatching);
+        button.innerHTML = isWatching
+            ? '<i class="fa-solid fa-stop"></i><span>Hentikan<br>Pelacakan</span>'
+            : '<i class="fa-solid fa-satellite-dish"></i><span>Aktifkan<br>Real-time</span>';
+    }
+    if (coordsEl && AppState.userLocation) {
+        coordsEl.textContent = `${AppState.userLocation.lat.toFixed(6)}, ${AppState.userLocation.lng.toFixed(6)}`;
+    }
+    if (accuracyEl && AppState.userLocation) {
+        const updatedAt = new Date(AppState.userLocation.timestamp).toLocaleTimeString('id-ID', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        accuracyEl.textContent = `Akurasi ±${Math.round(AppState.userLocation.accuracy)} m · diperbarui ${updatedAt}`;
+    }
+}
+
+function handleRealtimePosition(position, shouldFocus = false) {
+    const firstFix = !AppState.userLocation;
+    AppState.userLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        heading: position.coords.heading,
+        speed: position.coords.speed,
+        timestamp: position.timestamp || Date.now()
+    };
+
+    if (!AppState.realtimeLocationLayer) {
+        AppState.realtimeLocationLayer = L.layerGroup().addTo(AppState.map);
+    }
+    AppState.realtimeLocationLayer.clearLayers();
+
+    const { lat, lng, accuracy } = AppState.userLocation;
+    L.circle([lat, lng], {
+        radius: accuracy,
+        color: '#2563eb',
+        weight: 1,
+        fillColor: '#38bdf8',
+        fillOpacity: 0.12,
+        interactive: false
+    }).addTo(AppState.realtimeLocationLayer);
+    L.circleMarker([lat, lng], {
+        radius: 9,
+        color: '#ffffff',
+        weight: 3,
+        fillColor: '#2563eb',
+        fillOpacity: 1
+    }).bindPopup(`<strong>Posisi real-time Anda</strong><br>Akurasi ±${Math.round(accuracy)} meter`).addTo(AppState.realtimeLocationLayer);
+
+    updateRealtimeLocationUI();
+    renderNearestCctvResults();
+
+    if (shouldFocus || firstFix) {
+        AppState.map.flyTo([lat, lng], 13, { duration: 0.8 });
+        AppState.lastLocationFocusAt = Date.now();
+    }
+    if (AppState.pendingNearestFocus) {
+        AppState.pendingNearestFocus = false;
+        const nearest = getNearestCctvCandidates()[0];
+        if (nearest) focusNearestCctv(nearest.cctv.id);
+    }
+}
+
+function handleRealtimeLocationError(error) {
+    const message = error.code === 1
+        ? 'Izin lokasi ditolak. Aktifkan izin lokasi pada browser lalu coba lagi.'
+        : error.code === 3
+            ? 'Pencarian lokasi melewati batas waktu. Coba di area dengan sinyal GPS lebih baik.'
+            : 'Posisi tidak dapat ditemukan. Pastikan layanan lokasi perangkat aktif.';
+    stopRealtimeLocation(false);
+    const accuracyEl = document.getElementById('liveLocationAccuracy');
+    if (accuracyEl) accuracyEl.textContent = message;
+    setOperationalMission('Lokasi belum tersedia', message);
+    showToast(message, 'error');
+}
+
+function startRealtimeLocation(shouldFocus = true) {
+    if (!navigator.geolocation) {
+        showToast('Browser tidak mendukung pelacakan lokasi.', 'error');
+        return;
+    }
+    if (AppState.locationWatchId !== null) {
+        if (shouldFocus && AppState.userLocation) {
+            AppState.map.flyTo([AppState.userLocation.lat, AppState.userLocation.lng], 13);
+        }
+        return;
+    }
+
+    setOperationalMission('Pelacakan lokasi real-time', 'Posisi perangkat sedang diperbarui dan CCTV terdekat dihitung otomatis.');
+    AppState.locationWatchId = navigator.geolocation.watchPosition(
+        position => handleRealtimePosition(position, shouldFocus),
+        handleRealtimeLocationError,
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+    updateRealtimeLocationUI();
+}
+
+function stopRealtimeLocation(showNotification = true) {
+    if (AppState.locationWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(AppState.locationWatchId);
+    }
+    AppState.locationWatchId = null;
+    updateRealtimeLocationUI();
+    if (showNotification) showToast('Pelacakan lokasi real-time dihentikan.', 'info');
+}
+
+function toggleRealtimeLocation() {
+    if (AppState.locationWatchId === null) startRealtimeLocation(true);
+    else stopRealtimeLocation(true);
+}
+
+async function initializeRealtimeLocation() {
+    const searchInput = document.getElementById('nearestCctvSearch');
+    const radiusSelect = document.getElementById('nearestRadiusSelect');
+    searchInput?.addEventListener('input', renderNearestCctvResults);
+    radiusSelect?.addEventListener('change', renderNearestCctvResults);
+
+    if (!navigator.permissions?.query || !navigator.geolocation) return;
+    try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        if (permission.state === 'granted') startRealtimeLocation(false);
+        permission.addEventListener('change', () => {
+            if (permission.state === 'granted' && AppState.locationWatchId === null) startRealtimeLocation(false);
+            if (permission.state === 'denied') stopRealtimeLocation(false);
+        });
+    } catch (error) {
+        console.info('Status izin geolokasi tidak tersedia:', error.message);
+    }
+}
+
+function focusNearestCctv(cctvId) {
+    if (!AppState.userLocation) {
+        AppState.pendingNearestFocus = true;
+        startRealtimeLocation(true);
+        return;
+    }
+    const cctv = AppState.cctvList.find(item => item.id === cctvId);
+    if (!cctv) return;
+
+    if (AppState.nearestRouteLayer) AppState.map.removeLayer(AppState.nearestRouteLayer);
+    AppState.nearestRouteLayer = L.polyline([
+        [AppState.userLocation.lat, AppState.userLocation.lng],
+        [cctv.lat, cctv.lng]
+    ], {
+        color: '#7c3aed',
+        weight: 4,
+        opacity: 0.88,
+        dashArray: '9 9'
+    }).addTo(AppState.map);
+
+    switchTab('map-view');
+    fitCctvListOnMap([
+        { lat: AppState.userLocation.lat, lng: AppState.userLocation.lng },
+        cctv
+    ], 14);
+    selectCctvCard(cctv.id, false);
+    const marker = AppState.markerMap.get(cctv.id);
+    if (marker) marker.openPopup();
+
+    const distanceKm = haversineDistanceKm(AppState.userLocation.lat, AppState.userLocation.lng, cctv.lat, cctv.lng);
+    setOperationalMission('CCTV terdekat dipilih', `${cctv.nama} berjarak sekitar ${formatDistance(distanceKm)} dari posisi Anda.`);
+}
+
+function findNearestCctv() {
+    if (!AppState.userLocation) {
+        AppState.pendingNearestFocus = true;
+        setOperationalMission('Mencari posisi Anda', 'Izinkan lokasi agar sistem dapat menghitung CCTV terdekat.');
+        startRealtimeLocation(true);
+        return;
+    }
+    const nearest = getNearestCctvCandidates()[0];
+    if (!nearest) {
+        showToast('Tidak ada CCTV yang cocok pada radius pencarian saat ini.', 'error');
+        return;
+    }
+    focusNearestCctv(nearest.cctv.id);
+    showToast(`CCTV terdekat: ${nearest.cctv.nama} (${formatDistance(nearest.distanceKm)}).`, 'success');
+}
+
+function focusRuasFromAnalysis(ruasId) {
+    AppState.searchQuery = '';
+    AppState.selectedRuas = ruasId;
+    AppState.selectedStatus = 'all';
+    AppState.selectedArah = 'all';
+    syncFilterControls();
+    applyFilters();
+    closeModal('opsAnalysisModal');
+    switchTab('map-view');
+    fitCctvListOnMap(AppState.filteredList, 12);
+
+    const ruasName = AppState.filteredList[0]?.ruasNama || 'ruas terpilih';
+    setOperationalMission(
+        `Analisis ruas ${ruasName}`,
+        `${AppState.filteredList.length} titik pada ruas ini sedang ditampilkan di peta.`
+    );
+}
+
+function openOperationalAnalysis() {
+    const data = AppState.filteredList;
+    const total = data.length;
+    const high = data.filter(cctv => cctv.status === 'online').length;
+    const review = data.filter(cctv => cctv.status === 'offline').length;
+    const highPct = total ? Math.round((high / total) * 100) : 0;
+
+    const groups = new Map();
+    data.forEach(cctv => {
+        if (!groups.has(cctv.ruasId)) {
+            groups.set(cctv.ruasId, {
+                id: cctv.ruasId,
+                name: cctv.ruasNama,
+                items: [],
+                high: 0,
+                review: 0,
+                kmValues: []
+            });
+        }
+        const group = groups.get(cctv.ruasId);
+        group.items.push(cctv);
+        if (cctv.status === 'online') group.high += 1;
+        if (cctv.status === 'offline') group.review += 1;
+        if (Number.isFinite(cctv.kmNum) && cctv.kmNum < 9000) group.kmValues.push(cctv.kmNum);
+    });
+
+    const groupList = [...groups.values()].sort((a, b) => b.items.length - a.items.length);
+    const totalEl = document.getElementById('opsKpiTotal');
+    const highEl = document.getElementById('opsKpiHigh');
+    const ruasEl = document.getElementById('opsKpiRuas');
+    const reviewEl = document.getElementById('opsKpiReview');
+    if (totalEl) totalEl.textContent = total;
+    if (highEl) highEl.textContent = `${highPct}%`;
+    if (ruasEl) ruasEl.textContent = groupList.length;
+    if (reviewEl) reviewEl.textContent = review;
+
+    const coverageRows = document.getElementById('opsCoverageRows');
+    if (coverageRows) {
+        coverageRows.innerHTML = groupList.length ? groupList.map(group => {
+            const pct = group.items.length ? Math.round((group.high / group.items.length) * 100) : 0;
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(group.name)}</strong><small>${group.review} perlu verifikasi</small></td>
+                    <td><span class="ops-count-pill">${group.items.length}</span></td>
+                    <td>
+                        <div class="ops-quality-meter"><span style="width:${pct}%"></span></div>
+                        <small>${pct}%</small>
+                    </td>
+                    <td><button class="ops-table-action" onclick="focusRuasFromAnalysis('${group.id}')">Lihat peta</button></td>
+                </tr>
+            `;
+        }).join('') : '<tr><td colspan="4" class="ops-empty">Tidak ada data pada filter saat ini.</td></tr>';
+    }
+
+    const gaps = [];
+    groupList.forEach(group => {
+        const kmValues = [...new Set(group.kmValues)].sort((a, b) => a - b);
+        for (let index = 1; index < kmValues.length; index += 1) {
+            gaps.push({
+                ruasId: group.id,
+                ruasName: group.name,
+                from: kmValues[index - 1],
+                to: kmValues[index],
+                gap: kmValues[index] - kmValues[index - 1]
+            });
+        }
+    });
+    gaps.sort((a, b) => b.gap - a.gap);
+
+    const gapList = document.getElementById('opsGapList');
+    if (gapList) {
+        gapList.innerHTML = gaps.length ? gaps.slice(0, 6).map((gap, index) => `
+            <button class="ops-gap-item" onclick="focusRuasFromAnalysis('${gap.ruasId}')">
+                <span class="ops-gap-rank">${String(index + 1).padStart(2, '0')}</span>
+                <span class="ops-gap-copy">
+                    <strong>${escapeHtml(gap.ruasName)}</strong>
+                    <small>KM ${gap.from.toFixed(1)} → KM ${gap.to.toFixed(1)}</small>
+                </span>
+                <span class="ops-gap-value">${gap.gap.toFixed(1)} km</span>
+            </button>
+        `).join('') : '<div class="ops-empty">Data KM belum cukup untuk menghitung celah.</div>';
+    }
+
+    const severity = { offline: 0, gangguan: 1, online: 2 };
+    const priorities = [...data]
+        .sort((a, b) => (severity[a.status] ?? 3) - (severity[b.status] ?? 3) || (a.skorVerifikasi ?? 999) - (b.skorVerifikasi ?? 999))
+        .filter(cctv => cctv.status !== 'online')
+        .slice(0, 6);
+    const priorityList = document.getElementById('opsPriorityList');
+    if (priorityList) {
+        priorityList.innerHTML = priorities.length ? priorities.map(cctv => `
+            <button class="ops-priority-item" onclick="closeModal('opsAnalysisModal'); focusCctvOnMap('${cctv.id}')">
+                <span class="legend-dot ${cctv.status}"></span>
+                <span>
+                    <strong>${escapeHtml(cctv.nama)}</strong>
+                    <small>${escapeHtml(cctv.ruasNama)} · ${escapeHtml(cctv.km)}</small>
+                </span>
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        `).join('') : '<div class="ops-empty">Tidak ada titik berprioritas pada filter saat ini.</div>';
+    }
+
+    setOperationalMission('Analisis cakupan dibuka', `${total} titik pada ${groupList.length} ruas sedang dianalisis.`);
+    openModal('opsAnalysisModal');
 }
 
 // ==========================================================================
@@ -469,7 +949,7 @@ function renderSidebarList() {
                         <button class="btn-card-action" title="Sorot Titik di Peta" onclick="event.stopPropagation(); focusCctvOnMap('${cctv.id}')">
                             <i class="fa-solid fa-crosshairs"></i> Sorot
                         </button>
-                        <button class="btn-card-action btn-stream" title="Buka detail titik" onclick="event.stopPropagation(); openStreamModal('${cctv.id}')">
+                        <button class="btn-card-action btn-stream" title="Buka detail titik" onclick="event.stopPropagation(); openDetailModal('${cctv.id}')">
                             <i class="fa-solid fa-circle-info"></i> Detail
                         </button>
                     </div>
@@ -499,19 +979,18 @@ function selectCctvCard(cctvId, triggerFocus = true) {
 }
 
 // ==========================================================================
-// 5. LIVE STREAM SIMULATOR CANVAS (FASE 1: DETAIL INFO CCTV)
+// 5. DETAIL TITIK DAN PETA KOORDINAT OPENSTREETMAP
 // ==========================================================================
 let miniMapInstance = null;
 
-function openStreamModal(cctvId) {
+function openDetailModal(cctvId) {
     const cctv = AppState.cctvList.find(c => c.id === cctvId);
     if (!cctv) return;
 
-    AppState.activeStreamCctv = cctv;
+    AppState.activeDetailCctv = cctv;
 
-    // Fill Modal Content
+    // Fill modal with factual dataset information.
     document.getElementById('streamModalTitle').textContent = `${cctv.nama} (${cctv.km})`;
-    document.getElementById('streamCameraCode').textContent = cctv.id;
     document.getElementById('streamLocationLabel').textContent = `${cctv.ruasNama} - ${cctv.posisi}`;
     document.getElementById('telemetryKm').textContent = cctv.km;
     document.getElementById('telemetryArah').textContent = getCoordinateMethodLabel(cctv);
@@ -520,43 +999,15 @@ function openStreamModal(cctvId) {
     document.getElementById('telemetryCoords').textContent = `${cctv.lat.toFixed(4)}, ${cctv.lng.toFixed(4)}`;
     document.getElementById('telemetryRes').textContent = cctv.statusVerifikasi || 'Tidak tersedia';
 
-    // Set Google Maps navigation link
-    const gmapsBtn = document.getElementById('btnExternalGoogleMaps');
-    if (gmapsBtn) {
-        gmapsBtn.href = `https://www.google.com/maps?q=${cctv.lat},${cctv.lng}`;
+    // Link to the same coordinate on OpenStreetMap.
+    const osmBtn = document.getElementById('btnExternalOpenStreetMap');
+    if (osmBtn) {
+        osmBtn.href = `https://www.openstreetmap.org/?mlat=${cctv.lat}&mlon=${cctv.lng}#map=17/${cctv.lat}/${cctv.lng}`;
     }
 
-    // Default to Live view mode
-    setStreamViewMode('live');
-
-    const modal = document.getElementById('cctvStreamModal');
+    const modal = document.getElementById('cctvDetailModal');
     modal.classList.add('show');
-
-    // Init & Start Simulated Traffic Stream on HTML5 Canvas
-    initCanvasStream(cctv);
-}
-
-function setStreamViewMode(mode) {
-    const canvas = document.getElementById('cctvStreamCanvas');
-    const miniMapBox = document.getElementById('streamMiniMapContainer');
-    const tabLive = document.getElementById('tabModeLive');
-    const tabMap = document.getElementById('tabModeMap');
-
-    if (mode === 'map') {
-        if (canvas) canvas.style.display = 'none';
-        if (miniMapBox) miniMapBox.style.display = 'block';
-        if (tabLive) tabLive.classList.remove('active');
-        if (tabMap) tabMap.classList.add('active');
-
-        if (AppState.activeStreamCctv) {
-            initMiniMap(AppState.activeStreamCctv);
-        }
-    } else {
-        if (canvas) canvas.style.display = 'block';
-        if (miniMapBox) miniMapBox.style.display = 'none';
-        if (tabLive) tabLive.classList.add('active');
-        if (tabMap) tabMap.classList.remove('active');
-    }
+    initMiniMap(cctv);
 }
 
 function initMiniMap(cctv) {
@@ -568,9 +1019,10 @@ function initMiniMap(cctv) {
             zoomControl: true,
             attributionControl: true
         });
-        L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
             maxZoom: 20,
-            attribution: '&copy; Google Maps'
+            subdomains: 'abc',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> kontributor, Tiles style by HOT'
         }).addTo(miniMapInstance);
     }
 
@@ -600,14 +1052,9 @@ function initMiniMap(cctv) {
     }, 150);
 }
 
-function closeStreamModal() {
-    const modal = document.getElementById('cctvStreamModal');
+function closeDetailModal() {
+    const modal = document.getElementById('cctvDetailModal');
     modal.classList.remove('show');
-
-    if (AppState.canvasAnimationId) {
-        cancelAnimationFrame(AppState.canvasAnimationId);
-        AppState.canvasAnimationId = null;
-    }
 }
 
 // Realistic Highway Perspective Video Simulator with AI vehicle detection bounding boxes
@@ -1032,7 +1479,7 @@ function renderDataTable() {
                             <button class="btn-table-icon highlight" title="Sorot di Peta" onclick="focusCctvOnMap('${cctv.id}')">
                                 <i class="fa-solid fa-crosshairs"></i>
                             </button>
-                            <button class="btn-table-icon stream" title="Buka detail titik" onclick="openStreamModal('${cctv.id}')">
+                            <button class="btn-table-icon stream" title="Buka detail titik" onclick="openDetailModal('${cctv.id}')">
                                 <i class="fa-solid fa-circle-info"></i>
                             </button>
                             ${isAdmin ? `
@@ -1156,10 +1603,23 @@ function changeTablePage(newPage) {
     renderDataTable();
 }
 
+function requireAdminExportAccess(actionLabel) {
+    if (AdminAuth.isLoggedIn()) return true;
+    showToast(`${actionLabel} hanya tersedia untuk administrator.`, 'error');
+    openModal('loginModal');
+    return false;
+}
+
 // Export CCTV Data to CSV file
 function exportDataToCSV() {
+    if (!requireAdminExportAccess('Unduh CSV')) return;
     const headers = ['ID Kamera', 'Nama Titik', 'Ruas Tol', 'KM', 'Posisi', 'Latitude', 'Longitude', 'Status Koordinat', 'Metode Koordinat', 'Sumber', 'Status Verifikasi', 'Skor Verifikasi'];
-    const rows = AppState.cctvList.map(c => [
+    const exportedData = AppState.filteredList;
+    if (!exportedData.length) {
+        showToast('Tidak ada data pada filter saat ini untuk diekspor.', 'error');
+        return;
+    }
+    const rows = exportedData.map(c => [
         `"${c.id}"`,
         `"${c.nama.replace(/"/g, '""')}"`,
         `"${c.ruasNama}"`,
@@ -1179,23 +1639,34 @@ function exportDataToCSV() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `data_cctv_transjawa_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `hasil_filter_cctv_transjawa_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    showToast('Data CCTV berhasil diekspor ke format CSV!', 'success');
+    showToast(`${exportedData.length} titik hasil filter berhasil diekspor ke CSV.`, 'success');
 }
 
 // Export CCTV Data to JSON file
 function exportDataToJSON() {
-    const dataStr = JSON.stringify(AppState.cctvList, null, 2);
+    if (!requireAdminExportAccess('Unduh JSON')) return;
+    const exportedData = AppState.filteredList;
+    if (!exportedData.length) {
+        showToast('Tidak ada data pada filter saat ini untuk diekspor.', 'error');
+        return;
+    }
+    const dataStr = JSON.stringify(exportedData, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `data_cctv_transjawa_${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `hasil_filter_cctv_transjawa_${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    showToast('Data CCTV berhasil diekspor ke format JSON!', 'success');
+    showToast(`${exportedData.length} titik hasil filter berhasil diekspor ke JSON.`, 'success');
+}
+
+function printAdminReport() {
+    if (!requireAdminExportAccess('Cetak laporan')) return;
+    window.print();
 }
 
 // ==========================================================================
@@ -1575,30 +2046,15 @@ function initEventListeners() {
         });
     }
 
-    // Geolocation / GPS Locator
+    // Geolocation / GPS Locator (shared with the real-time location panel)
     const btnGps = document.getElementById('btnMapGps');
     if (btnGps) {
         btnGps.addEventListener('click', () => {
-            if ('geolocation' in navigator) {
-                showToast('Mencari koordinat lokasi Anda...', 'info');
-                navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        const { latitude, longitude } = pos.coords;
-                        AppState.map.flyTo([latitude, longitude], 13);
-                        L.circleMarker([latitude, longitude], {
-                            radius: 8,
-                            color: '#38bdf8',
-                            fillColor: '#0284c7',
-                            fillOpacity: 0.9
-                        }).addTo(AppState.map).bindPopup('<b>Lokasi Anda Saat Ini</b>').openPopup();
-                        showToast('Lokasi Anda ditemukan di peta!', 'success');
-                    },
-                    err => {
-                        showToast('Tidak dapat mengakses GPS atau izin ditolak.', 'error');
-                    }
-                );
+            if (AppState.userLocation) {
+                AppState.map.flyTo([AppState.userLocation.lat, AppState.userLocation.lng], 14);
+                showToast('Peta dipusatkan ke posisi real-time Anda.', 'success');
             } else {
-                showToast('Browser Anda tidak mendukung geolokasi.', 'error');
+                startRealtimeLocation(true);
             }
         });
     }
@@ -1620,8 +2076,8 @@ function initEventListeners() {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.classList.remove('show');
-                if (modal.id === 'cctvStreamModal') {
-                    closeStreamModal();
+                if (modal.id === 'cctvDetailModal') {
+                    closeDetailModal();
                 }
             }
         });
